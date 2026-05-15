@@ -206,13 +206,20 @@ button#submit:hover{background:var(--dim);box-shadow:var(--glow);}
 <div id="peep-mask"></div>
 
 <!-- 开场 -->
-<div id="start-modal">
-  <div id="start-inner">
-    <div id="start-text"><span class="cursor"></span></div>
-    <div id="start-warn">注：本体验包含窥视感、强迫性互动与恐怖氛围<br>如有不适请立即关闭</div>
-    <button id="start-btn">继续</button>
-  </div>
-</div>
+<script>
+// ===== 开场 =====
+startBtn.onclick=()=>{
+  stIdx++;
+  if(stIdx<startTexts.length){
+    startBtn.innerText=stIdx===startTexts.length-1?"进入":"继续";
+    typeStartText(startTexts[stIdx]);
+  }else{
+    document.getElementById("start-modal").style.display="none";
+    appEl.style.display="block";
+    outputEl.innerHTML="";
+    showQFixed(); // 
+  }
+};
 
 <!-- 结局 -->
 <div id="ending-overlay">
