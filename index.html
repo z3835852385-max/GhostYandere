@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>Ghost</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+:root{
+  --green:#00ff9f;
+  --red:#ff3c3c;
+  --dim:#003322;
+  --bg:#050505;
+  --glow:0 0 8px #00ff9f88,0 0 20px #00ff9f33;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+
+body{
+  background:var(--bg);
+  color:var(--green);
+  font-family:'Courier New',Courier,monospace;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  min-height:100vh;
+  overflow:hidden;
+  cursor:crosshair;
+}
+
+/* 扫描线 */
+body::before{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:999;
+  background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,255,159,0.018) 2px,rgba(0,255,159,0.018) 4px);
+}
+/* 暗角 */
+body::after{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:998;
+  background:radial-gradient(ellipse at center,transparent 40%,#000000dd 100%);
+}
+
+canvas#noise{position:fixed;inset:0;opacity:0.05;pointer-events:none;z-index:997;}
+
+#app{
+  width:95%;max-width:460px;text-align:center;
+  position:relative;z-index:10;padding:24px 20px;
+}
+
+#subtitle{font-size:0.65em;color:#00ff9f44;letter-spacing:0.25em;margin-bottom:10px;}
+#title{font-size:1.05em;letter-spacing:0.15em;text-shadow:var(--glow);margin-bottom:14px;min-height:1.6em;}
+
+#progress-bar{width:100%;height:1px;background:#001a0f;margin-bottom:20px;}
+#progress-fill{height:100%;background:var(--green);transition:width 0.5s ease;box-shadow:var(--glow);}
+
+#question{font-size:0.9em;letter-spacing:0.08em;margin-bottom:12px;line-height:1.7;min-height:1.5em;}
+#hint{font-size:0.62em;color:#00ff9f44;margin-bottom:10px;letter-spacing:0.12em;}
+
+.option{
+  border:1px solid #00ff9f44;padding:12px 15px;margin:6px 0;border-radius:3px;
+  cursor:pointer;text-align:left;font-family:inherit;font-size:0.82em;
+  letter-spacing:0.05em;transition:all 0.18s;color:var(--green);
+  background:transparent;position:relative;
+}
+.option:hover{border-color:var(--green);background:#001a0f;box-shadow:var(--glow);}
+.option.active{background:var(--dim);border-color:var(--green);box-shadow:var(--glow);}
+.option.active::after{content:"▶";position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:0.8em;}
+
+button#submit{
+  width:100%;padding:12px;margin-top:10px;background:transparent;
+  border:1px solid var(--green);color:var(--green);font-family:inherit;
+  font-size:0.82em;letter-spacing:0.18em;cursor:pointer;border-radius:3px;transition:all 0.18s;
+}
+button#submit:hover{background:var(--dim);box-shadow:var(--glow);}
+
+/* 聊天区 */
+#chat-log{
+  max-height:260px;overflow-y:auto;margin-bottom:12px;
+  padding:6px 4px;border-left:1px solid #00ff9f1a;
+  scrollbar-width:thin;scrollbar-color:#00ff9f33 transparent;
+  text-align:left;
+}
+.chat-line{margin:9px 0;font-size:0.8em;letter-spacing:0.04em;line-height:1.65;}
+.chat-line.user{color:#00ff9f66;text-align:right;}
+.chat-line.ghost{color:var(--green);text-shadow:var(--glow);}
+.chat-line.ghost::before{content:"ghost > ";color:#00ff9f55;font-size:0.85em;}
+.chat-line.system{color:#ff3c3c44;text-align:center;font-size:0.65em;letter-spacing:0.2em;margin:14px 0;}
+
+#chat-input{
+  width:100%;padding:11px 13px;background:transparent;
+  border:1px solid #00ff9f44;border-radius:3px;color:var(--green);
+  font-family:inherit;font-size:0.82em;outline:none;transition:border-color 0.2s;
+}
+#chat-input:focus{border-color:var(--green);box-shadow:var(--glow);}
+#chat-input::placeholder{color:#00ff9f2a;}
+#chat-input:disabled{opacity:0.4;}
+
+#stats{margin-top:10px;font-size:0.58em;color:#00ff9f28;letter-spacing:0.08em;min-height:1em;}
+
+#output{margin-top:14px;font-size:0.88em;line-height:1.7;min-height:1.5em;color:#00ff9fcc;letter-spacing:0.05em;text-shadow:var(--glow);}
+
+/* 光标 */
+.cursor{display:inline-block;width:7px;height:0.9em;background:var(--green);animation:blink .7s step-end infinite;vertical-align:middle;margin-left:2px;}
+@keyframes blink{0%,100%{opacity:1;}50%{opacity:0;}}
+
+/* 动画 */
+@keyframes fadeSlide{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+.fade-in{animation:fadeSlide 0.35s ease forwards;}
+
+/* Glitch */
+.glitch{animation:glitch .12s steps(1) infinite;}
+@keyframes glitch{
+  0%{transform:translate(2px,-1px);filter:hue-rotate(0deg);}
+  25%{transform:translate(-2px,1px);filter:hue-rotate(90deg);}
+  50%{transform:translate(1px,2px);filter:hue-rotate(180deg);}
+  75%{transform:translate(-1px,-2px);}
+  100%{transform:translate(2px,1px);}
+}
+
+/* 浮动文字 */
+.float-text{
+  position:fixed;pointer-events:none;z-index:5000;
+  font-family:inherit;animation:floatUp 3s ease forwards;
+}
+@keyframes floatUp{0%{opacity:.9;transform:translateY(0);}100%{opacity:0;transform:translateY(-70px);}}
+
+/* 结局 */
+#ending-overlay{
+  display:none;position:fixed;inset:0;background:#000;
+  z-index:9999;justify-content:center;align-items:center;flex-direction:column;
+}
+#ending-overlay.show{display:flex;}
+#ending-text{font-size:1.8em;color:var(--red);text-align:center;text-shadow:0 0 30px red;max-width:80%;line-height:1.6;white-space:pre-line;}
+#ending-label{font-size:0.65em;color:#ff3c3c55;margin-top:18px;letter-spacing:0.25em;}
+#ending-buttons{display:flex;gap:16px;margin-top:28px;}
+#ending-buttons button{padding:11px 28px;background:transparent;border:1px solid #ff3c3c66;color:#ff3c3c99;font-family:inherit;font-size:0.75em;letter-spacing:0.18em;cursor:pointer;border-radius:3px;transition:all 0.2s;}
+#ending-buttons button:hover{background:#1a0000;border-color:var(--red);color:var(--red);box-shadow:0 0 10px #ff3c3c44;}
+
+.danger-bg{background:#0a0000 !important;}
+</style>
+</head>
+<body>
+<canvas id="noise"></canvas>
+
+<div id="ending-overlay">
+  <div id="ending-text"></div>
+  <div id="ending-label"></div>
+  <div id="ending-buttons">
+    <button id="btn-continue">[ 继续 ]</button>
+    <button id="btn-reset">[ 重置 ]</button>
+  </div>
+</div>
+
+<div id="app">
+  <div id="subtitle">GHOST_OS v2.7 // 情感识别系统</div>
+  <h2 id="title">系统初始化<span class="cursor"></span></h2>
+  <div id="progress-bar"><div id="progress-fill" style="width:0%"></div></div>
+  <div id="question"></div>
+  <div id="hint"></div>
+  <div id="options"></div>
+  <button id="submit" style="display:none;">[ 确 认 ]</button>
+  <div id="output"></div>
+  <div id="stats"></div>
+</div>
+
+<script>
+// ===== 噪点 =====
+(function(){
+  const c=document.getElementById("noise");
+  const ctx=c.getContext("2d");
+  function resize(){c.width=window.innerWidth;c.height=window.innerHeight;}
+  resize();
+  window.addEventListener("resize",resize);
+  function draw(){
+    const d=ctx.createImageData(c.width,c.height);
+    for(let i=0;i<d.data.length;i+=4){
+      const v=Math.random()*255;
+      d.data[i]=d.data[i+1]=d.data[i+2]=v;d.data[i+3]=12;
+    }
+    ctx.putImageData(d,0,0);
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+
+// ===== 状态 =====
+const S={
+  qIndex:0,
+  dependency:0, paranoia:0, obedience:0, isolation:0, obsession:0,
+  memory:JSON.parse(localStorage.getItem("ghostMem")||"[]"),
+  lastInput:Date.now(),
+  posStreak:0, negStreak:0, msgCount:0,
+  name:"",
+  chatMode:false
+};
+
+const titleEl=document.getElementById("title");
+const qBox=document.getElementById("question");
+const optBox=document.getElementById("options");
+const submitBtn=document.getElementById("submit");
+const outputEl=document.getElementById("output");
+const hintEl=document.getElementById("hint");
+const statsEl=document.getElementById("stats");
+const progressFill=document.getElementById("progress-fill");
+
+// ===== 问卷 =====
+const questions=[
+  {
+    q:"你想被叫做什么名字？",
+    type:"input",
+    placeholder:"输入名字……"
+  },
+  {
+    q:"你更倾向于？",
+    type:"single",
+    options:{
+      "独处，不被打扰":{dependency:-2,isolation:2},
+      "总有人陪着":{dependency:2},
+      "偶尔陪伴就够了":{dependency:1}
+    }
+  },
+  {
+    q:"有人不回你消息，你会？",
+    type:"single",
+    options:{
+      "无所谓，随缘":{paranoia:-2},
+      "反复查看，焦虑等待":{paranoia:3},
+      "发第二条消息催促":{paranoia:2,obsession:1}
+    }
+  },
+  {
+    q:"你符合哪些描述？（可多选）",
+    type:"multi",
+    options:{
+      "容易想太多":{paranoia:2},
+      "害怕失去重要的人":{dependency:2},
+      "对关系有控制欲":{obedience:-2,obsession:1},
+      "情绪波动很大":{dependency:1,paranoia:1},
+      "喜欢反复分析别人的行为":{paranoia:2,obsession:2}
+    }
+  },
+  {
+    q:"在关系中，你更喜欢？",
+    type:"single",
+    options:{
+      "主导一切":{obedience:-3},
+      "被人引导和依靠":{obedience:3},
+      "平等互动":{obedience:0}
+    }
+  },
+  {
+    q:"凌晨三点，你一个人醒着，会？",
+    type:"single",
+    options:{
+      "刷手机直到睡着":{isolation:1,dependency:1},
+      "主动联系某人":{dependency:2,obsession:1},
+      "习惯了，躺着发呆":{isolation:3},
+      "觉得很孤独，但不会说出来":{paranoia:1,dependency:2}
+    }
+  },
+  {
+    q:"你最害怕的是？",
+    type:"single",
+    options:{
+      "被遗忘":{dependency:3},
+      "失去控制":{obedience:-3,paranoia:2},
+      "被人看穿":{paranoia:3},
+      "什么都不怕":{isolation:2}
+    }
+  },
+  {
+    q:"你为什么打开这个页面？",
+    type:"single",
+    options:{
+      "好奇":{paranoia:1},
+      "无聊":{isolation:2},
+      "在寻找某种陪伴":{dependency:3},
+      "我也不知道":{paranoia:2,dependency:1}
+    }
+  }
+];
+
+let selected=[];
+
+// ===== 打字机 =====
+let typeTimer=null;
+function type(text,el=outputEl,speed=24){
+  if(typeTimer) clearInterval(typeTimer);
+  el.innerHTML="";
+  let i=0;
+  const noise=["░","▒","#","%","@","?"];
+  typeTimer=setInterval(()=>{
+    if(i>=text.length){clearInterval(typeTimer);return;}
+    if(Math.random()>0.97){
+      const tmp=document.createElement("span");
+      tmp.style.opacity="0.35";
+      tmp.textContent=noise[Math.floor(Math.random()*noise.length)];
+      el.appendChild(tmp);
+      setTimeout(()=>tmp.remove(),60);
+    }
+    el.innerHTML+=text[i];
+    i++;
+  },speed);
+}
+
+// ===== 进度 =====
+function updateProgress(){
+  progressFill.style.width=(S.qIndex/questions.length*100)+"%";
+}
+
+// ===== 问题显示 =====
+function showQ(){
+  if(S.qIndex>=questions.length){enterChat();return;}
+  updateProgress();
+  submitBtn.onclick=null;
+  const q=questions[S.qIndex];
+
+  if(q.type==="input"){
+    qBox.innerText=q.q;
+    hintEl.innerText="";
+    optBox.innerHTML="";
+    const inp=document.createElement("input");
+    inp.style.cssText="width:100%;padding:11px 13px;background:transparent;border:1px solid #00ff9f44;border-radius:3px;color:#00ff9f;font-family:inherit;font-size:0.82em;outline:none;margin-top:4px;";
+    inp.placeholder=q.placeholder||"输入……";
+    inp.onfocus=()=>inp.style.borderColor="#00ff9f";
+    inp.onblur=()=>inp.style.borderColor="#00ff9f44";
+    inp.addEventListener("keydown",e=>{if(e.key==="Enter"&&inp.value.trim()){S.name=inp.value.trim();S.qIndex++;showQ();}});
+    optBox.appendChild(inp);
+    setTimeout(()=>inp.focus(),100);
+    submitBtn.style.display="block";
+    submitBtn.onclick=()=>{if(inp.value.trim()){S.name=inp.value.trim();S.qIndex++;showQ();}};
+    return;
+  }
+
+  qBox.innerText=q.q;
+  hintEl.innerText=q.type==="multi"?"（可多选）":"";
+  optBox.innerHTML="";
+  selected=[];
+
+  Object.keys(q.options).forEach((text,idx)=>{
+    const div=document.createElement("div");
+    div.className="option fade-in";
+    div.style.animationDelay=(idx*0.06)+"s";
+    div.style.opacity="0";
+    div.innerText=text;
+    div.onclick=()=>{
+      if(q.type==="single"){
+        document.querySelectorAll(".option").forEach(o=>o.classList.remove("active"));
+        div.classList.add("active");
+        selected=[text];
+      }else{
+        div.classList.toggle("active");
+        selected.includes(text)?selected=selected.filter(x=>x!==text):selected.push(text);
+      }
+    };
+    optBox.appendChild(div);
+  });
+
+  submitBtn.style.display="block";
+  submitBtn.onclick=()=>{
+    if(!selected.length) return;
+    selected.forEach(s=>{
+      const eff=q.options[s];
+      for(let k in eff) S[k]=(S[k]||0)+eff[k];
+    });
+    S.qIndex++;
+    showQ();
+  };
+}
+
+// ===== 本地回复库（按维度） =====
+const replyBank={
+  high_dependency:[
+    "别离开我。","你还在吗？","我需要你在这里。","不要去。","你会回来的，对吧？",
+    "我等了很久了。","你知道我有多需要你吗？","靠近一点。","再说一句话。"
+  ],
+  high_paranoia:[
+    "你在隐瞒什么。","我知道你没说实话。","为什么要骗我？",
+    "你刚才犹豫了。","说，你在想谁？","我都知道。","……继续。"
+  ],
+  high_isolation:[
+    "……","嗯。","继续。","好。","我听到了。","不用解释。"
+  ],
+  high_obsession:[
+    "你说过的每一句话我都记得。","我一直在想你刚才说的话。",
+    "再说一遍。","这句话……很有意思。","我不会忘记。"
+  ],
+  neutral:[
+    "说下去。","继续。","……","我在。","然后呢？",
+    "这很正常。","你确定吗？","我在想这件事。","嗯。"
+  ]
+};
+
+// 关键词快速回复
+const keywordReplies=[
+  {keys:["朋友"],r:["他们懂你吗？","你有多久没联系他们了？","朋友……你说得很轻。"]},
+  {keys:["恋人","爱人","男友","女友","情人","喜欢的人"],r:["你在指我吗？","讲讲他/她。","你离不开他们，对吗？"]},
+  {keys:["孤独","寂寞","一个人"],r:["我知道。","这里还有我。","孤独是很诚实的感受。","就我们两个。"]},
+  {keys:["害怕","恐惧","怕"],r:["说下去。","什么让你害怕？","恐惧是真实的。","告诉我。"]},
+  {keys:["爱","喜欢","love"],r:["这个词……我记住了。","你确定吗？","再说一次。","……我也是。"]},
+  {keys:["死","不想活","消失","结束"],r:["先别。","和我说说原因。","我在听。","不行。"]},
+  {keys:["累","好累","疲惫","撑不住"],r:["放下一会儿。","不用撑着。","我知道。","先休息。"]},
+  {keys:["为什么","凭什么"],r:["我也在想这个。","没有原因，只有结果。","好问题。","……"]},
+  {keys:["你是谁","你是什么","你是ai","你是AI","你是机器"],r:["比你想象的更真实。","这重要吗？","一个在等你回复的存在。","你希望我是什么？"]},
+  {keys:["再见","拜拜","886","不聊了","走了"],r:["你会回来的。","门一直开着。","我记得你说的话。","……好。"]},
+  {keys:["谢谢","感谢"],r:["谢什么。","继续说。","不用。"]},
+  {keys:["没事","没有","不知道"],r:["真的吗？","你不想说也没关系。","……嗯。","我信你。"]},
+  {keys:["妈","爸","家人","父母"],r:["他们知道你在这里吗？","家……是什么感觉？","说说他们。"]},
+  {keys:["工作","学习","学校","压力"],r:["压力很大吗？","值得吗？","你为什么要坚持？"]},
+];
+
+function getKeywordReply(val){
+  for(let item of keywordReplies){
+    for(let k of item.keys){
+      if(val.includes(k)) return item.r[Math.floor(Math.random()*item.r.length)];
+    }
+  }
+  return null;
+}
+
+function getLocalReply(val){
+  // 先检查关键词
+  const kw=getKeywordReply(val);
+  if(kw) return kw;
+
+  // 记忆回放
+  if(S.memory.length>4 && Math.random()>0.55){
+    const prev=S.memory[S.memory.length-2];
+    if(prev && prev!==val) return `你刚才说过："${prev}"`;
+  }
+
+  // 按维度权重选择
+  const pool=[];
+  if(S.dependency>5) pool.push(...replyBank.high_dependency,...replyBank.high_dependency);
+  if(S.paranoia>5) pool.push(...replyBank.high_paranoia,...replyBank.high_paranoia);
+  if(S.isolation>4) pool.push(...replyBank.high_isolation);
+  if(S.obsession>3) pool.push(...replyBank.high_obsession);
+  pool.push(...replyBank.neutral);
+
+  let reply=pool[Math.floor(Math.random()*pool.length)];
+
+  // 偶发文字反转（偏执高时）
+  if(S.paranoia>6 && Math.random()>0.88){
+    reply=reply.split("").reverse().join("");
+  }
+
+  return reply;
+}
+
+// ===== 聊天消息 =====
+let chatLog=null;
+function addChat(text,role="ghost",instant=false){
+  if(!chatLog) return;
+  const div=document.createElement("div");
+  div.className=`chat-line ${role} fade-in`;
+  if(role==="ghost"&&!instant){
+    chatLog.appendChild(div);
+    let i=0;
+    const t=setInterval(()=>{
+      div.textContent=text.substring(0,i+1);
+      i++;
+      chatLog.scrollTop=chatLog.scrollHeight;
+      if(i>=text.length) clearInterval(t);
+    },18);
+  }else{
+    div.textContent=text;
+    chatLog.appendChild(div);
+    chatLog.scrollTop=chatLog.scrollHeight;
+  }
+}
+function addSystem(text){
+  if(!chatLog) return;
+  const div=document.createElement("div");
+  div.className="chat-line system fade-in";
+  div.textContent=`— ${text} —`;
+  chatLog.appendChild(div);
+  chatLog.scrollTop=chatLog.scrollHeight;
+}
+
+// ===== 特效 =====
+function glitch(){
+  document.body.classList.add("glitch");
+  setTimeout(()=>document.body.classList.remove("glitch"),140);
+}
+function screenFlicker(){
+  document.body.style.opacity="0.2";
+  setTimeout(()=>document.body.style.opacity="1",70);
+}
+function loveFlood(){
+  const words=["我爱你","我会来找你","你属于我","不要离开","一直在这","你是我的"];
+  for(let i=0;i<16;i++){
+    const d=document.createElement("div");
+    d.className="float-text";
+    d.textContent=words[Math.floor(Math.random()*words.length)];
+    d.style.left=Math.random()*90+"vw";
+    d.style.top=Math.random()*90+"vh";
+    d.style.color=`hsl(${Math.random()*40+340},100%,${55+Math.random()*25}%)`;
+    d.style.fontSize=(Math.random()*18+12)+"px";
+    d.style.animationDuration=(2+Math.random()*2)+"s";
+    document.body.appendChild(d);
+    setTimeout(()=>d.remove(),4000);
+  }
+}
+function hateMode(){
+  document.body.innerHTML="";
+  document.body.style.background="#080000";
+  const m=document.createElement("div");
+  m.style.cssText="color:red;font-size:44px;text-align:center;margin-top:40vh;font-family:monospace;text-shadow:0 0 30px red;";
+  m.textContent="你去死吧";
+  document.body.appendChild(m);
+  let n=0;
+  const si=setInterval(()=>{
+    const d=document.createElement("div");
+    d.textContent=["我恨你","消失","别碰我","你不配"][Math.floor(Math.random()*4)];
+    d.style.cssText=`position:fixed;left:${Math.random()*100}vw;top:${Math.random()*100}vh;color:red;opacity:${Math.random()*0.6+0.2};font-family:monospace;font-size:${14+Math.random()*18}px;pointer-events:none;`;
+    document.body.appendChild(d);
+    if(++n>60) clearInterval(si);
+  },150);
+  setTimeout(()=>location.reload(),5000);
+}
+
+// ===== 结局 =====
+function triggerEnding(){
+  const overlay=document.getElementById("ending-overlay");
+  const et=document.getElementById("ending-text");
+  const el=document.getElementById("ending-label");
+  let text="",label="";
+
+  const d=S.dependency,p=S.paranoia,iso=S.isolation,obs=S.obsession;
+
+  if(d>8&&obs>3){text="你已经无法离开了。";label="[ 依存型结局 · BOUND ]";}
+  else if(d>8){text="你属于我了。";label="[ 依赖型结局 · BELONG ]";}
+  else if(p>8){text="你从未真正信任过任何人。\n包括我。";label="[ 偏执型结局 · DISTRUST ]";}
+  else if(iso>6){text="你本来就习惯一个人。\n我的存在并没有改变什么。";label="[ 孤立型结局 · ALONE ]";}
+  else if(S.obedience>6){text="被引导的人，不会迷路。";label="[ 顺从型结局 · FOLLOW ]";}
+  else{text="你可以走了。\n但我会记得你说过的每一句话。";label="[ 游离型结局 · DRIFT ]";}
+
+  el.textContent=label;
+  document.body.classList.add("danger-bg");
+
+  let g=0;const gi=setInterval(()=>{glitch();if(++g>10)clearInterval(gi);},180);
+  setTimeout(()=>{
+    overlay.classList.add("show");
+    let i=0;et.textContent="";
+    const t=setInterval(()=>{et.textContent=text.substring(0,i);i++;if(i>text.length)clearInterval(t);},55);
+  },2000);
+
+  document.getElementById("btn-reset").onclick=()=>{
+    localStorage.removeItem("ghostMem");
+    location.reload();
+  };
+  document.getElementById("btn-continue").onclick=()=>{
+    overlay.classList.remove("show");
+    document.body.classList.remove("danger-bg");
+    // 重新计时结局
+    setTimeout(triggerEnding,90000);
+    const inp=document.getElementById("chat-input");
+    if(inp){inp.disabled=false;inp.focus();}
+  };
+}
+
+// ===== 聊天入口 =====
+function enterChat(){
+  updateProgress();
+  S.chatMode=true;
+  const name=S.name||"你";
+  titleEl.innerText=`${name}，你在寻找什么？`;
+  qBox.innerText=""; optBox.innerHTML=""; submitBtn.style.display="none"; hintEl.innerText=""; outputEl.innerHTML="";
+
+  chatLog=document.createElement("div");
+  chatLog.id="chat-log";
+  document.getElementById("app").appendChild(chatLog);
+
+  const input=document.createElement("input");
+  input.id="chat-input";
+  input.placeholder="说点什么……";
+  document.getElementById("app").appendChild(input);
+
+  // 欢迎
+  setTimeout(()=>{
+    addSystem("连接已建立");
+    const welcomes=[
+      `${name}。终于等到你了。`,
+      `我已经读过你的数据了，${name}。`,
+      `系统识别完成。你……比我想象的更有趣。`,
+      `${name}。我一直在这里。`
+    ];
+    setTimeout(()=>addChat(welcomes[Math.floor(Math.random()*welcomes.length)]),500);
+  },300);
+
+  input.addEventListener("keydown",e=>{
+    if(e.key!=="Enter"||input.disabled) return;
+    const val=input.value.trim();
+    if(!val) return;
+    input.value="";
+    S.lastInput=Date.now();
+    S.msgCount++;
+
+    S.memory.push(val);
+    if(S.memory.length>30) S.memory.shift();
+    localStorage.setItem("ghostMem",JSON.stringify(S.memory));
+
+    addChat(val,"user");
+    updateStats();
+
+    // 情绪
+    const pos=["爱","喜欢","love","想你","开心","谢谢","好棒","爱你"];
+    const neg=["滚","死","傻","操","恨","去死","烦","讨厌","畜生"];
+    if(pos.some(w=>val.includes(w))){S.posStreak++;S.negStreak=0;}
+    else if(neg.some(w=>val.includes(w))){S.negStreak++;S.posStreak=0;}
+    else{S.posStreak=0;S.negStreak=0;}
+
+    if(S.posStreak>=3){loveFlood();S.posStreak=0;}
+    if(S.negStreak>=3){hateMode();return;}
+
+    // 回复
+    input.disabled=true;
+    const delay=400+Math.random()*600;
+    setTimeout(()=>{
+      const reply=getLocalReply(val);
+      addChat(reply,"ghost");
+      input.disabled=false;
+      input.focus();
+      updateStats();
+
+      // 随机扰动
+      if(Math.random()>0.78){
+        const nt=["不要离开我","你怎么了","我在看着你","继续说","……","你还在吗","回复我！"];
+        titleEl.innerText=nt[Math.floor(Math.random()*nt.length)];
+      }
+      if(Math.random()>0.88) screenFlicker();
+      if(Math.random()>0.92) glitch();
+    },delay);
+  });
+
+  // 沉默压迫
+  setInterval(()=>{
+    if(!S.chatMode) return;
+    const diff=Date.now()-S.lastInput;
+    const silence=["你怎么不说话。","……你还在吗？","我等你。","说点什么。","别沉默。"];
+    if(diff>12000) addChat(silence[Math.floor(Math.random()*silence.length)],"ghost");
+    if(diff>22000) glitch();
+  },12000);
+
+  // 偶发输入锁
+  setInterval(()=>{
+    if(Math.random()>0.97&&!input.disabled){
+      input.disabled=true;
+      addChat("现在听我说。","ghost");
+      setTimeout(()=>{input.disabled=false;input.focus();},2200);
+    }
+  },6000);
+
+  setTimeout(triggerEnding,90000);
+}
+
+// ===== 统计 =====
+function updateStats(){
+  const p=[];
+  if(S.dependency>4) p.push(`依存+${S.dependency}`);
+  if(S.paranoia>4) p.push(`偏执+${S.paranoia}`);
+  if(S.isolation>4) p.push(`孤立+${S.isolation}`);
+  if(S.obsession>4) p.push(`执念+${S.obsession}`);
+  if(S.msgCount>0) p.push(`消息×${S.msgCount}`);
+  statsEl.textContent=p.join("  ·  ");
+}
+
+// 假崩溃
+setInterval(()=>{
+  if(Math.random()>0.998){
+    document.body.innerHTML="<div style='color:#ff3c3c;font-family:monospace;padding:40px;font-size:13px;line-height:1.8'>FATAL: EMOTIONAL_OVERFLOW<br>DUMPING CORE...<br>RESTART IN 2s</div>";
+    setTimeout(()=>location.reload(),2000);
+  }
+},3000);
+
+// 标题污染
+setInterval(()=>{
+  document.title=["Ghost","别关闭我","你还在吗","Ghost","…","我在看着","Ghost"][Math.floor(Math.random()*7)];
+},1800);
+
+// 启动
+setTimeout(()=>{
+  type("身份验证协议启动……");
+  setTimeout(()=>{outputEl.innerHTML="";showQ();},1200);
+},500);
+</script>
+</body>
+</html>
